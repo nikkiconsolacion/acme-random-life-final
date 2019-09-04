@@ -1,0 +1,224 @@
+<html>
+  <head>
+  <script src="https://unpkg.com/react@16/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@16/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+  <script src='https://cdnjs.cloudflare.com/ajax/libs/axios/0.19.0/axios.js'></script>
+  <script src='https://cdnjs.cloudflare.com/ajax/libs/Faker/3.1.0/faker.js'></script>
+  <script src='https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.24.0/moment.js'></script>
+  <style>
+    body {
+      font-family: verdana;
+    }
+    form {
+      display: flex;
+      flex-direction: column;
+    }
+    button {
+      padding: 0.5rem;
+      cursor: pointer;
+    }
+    hr {
+      border: 0.75px solid tomato;
+    }
+    li {
+      list-style-type: none;
+      display: flex;
+      flex-direction: column;
+    }
+    .error {
+      color: red;
+    }
+
+  </style>
+
+  </head>
+  <body>
+    <div id='root'>
+    </div>
+    <script type='text/babel'>
+      const API = 'https://acme-users-api-rev.herokuapp.com/api';
+
+      const fetchUser = async ()=> {
+        const storage = window.localStorage;
+        const userId = storage.getItem('userId');
+        if(userId){
+          try {
+            return (await axios.get(`${API}/users/detail/${userId}`)).data;
+          }
+          catch(ex){
+            storage.removeItem('userId');
+            return fetchUser();
+          }
+        }
+        const user = (await axios.get(`${API}/users/random`)).data;
+        storage.setItem('userId', user.id);
+        return user;
+      };
+      //function to generate a random moment between 2019 and 2020
+      const momentRandom = ()=> {
+        const mm = Math.ceil(Math.random() * 12);
+        const dd = (mm)=> {
+          const monthsWith31Days = [ 1, 3, 5, 7, 8, 10, 12];
+          let days = monthsWith31Days.includes(mm) ? 31 : 30;
+          if(mm === 2) days = 28;
+          return Math.ceil(Math.random() * days)
+        }
+        const yyyy = Math.round(2019 + Math.random());
+        return moment(`${mm}/${dd(mm)}/${yyyy}`);
+      }
+
+      class App extends React.Component{
+        constructor(){
+          super();
+          this.state = {
+            user: {},
+            companies: [],
+            vacations: [],
+            notes: [],
+            followingCompanies: [],
+            error: ''
+          };
+          this.generateRandomNote = this.generateRandomNote.bind(this);
+          this.generateRandomCompany = this.generateRandomCompany.bind(this);
+          this.generateRandomVacation = this.generateRandomVacation.bind(this);
+          this.destroy = this.destroy.bind(this);
+        }
+        async generateRandomNote(){
+          this.setState({ error: '' });
+          const { notes, user } = this.state;
+          try {
+            const note = (await axios.post(`${API}/users/${user.id}/notes`, { archived: true, text: `${ faker.lorem.sentence()}`})).data;
+            this.setState({ notes: [...notes, note ] })
+          }
+          catch(ex){
+            this.setState({ error: ex.response.data.message });
+          }
+        }
+
+        async generateRandomCompany(){
+          this.setState({ error: ''});
+          const { followingCompanies, user, companies } = this.state;
+          try {
+            const company = (await axios.get(`${API}/companies/random`)).data;
+            const followingCompany = (await axios.post(`${API}/users/${user.id}/followingCompanies`, { rating: 1, companyId: company.id })).data;
+            this.setState({ followingCompanies: [...followingCompanies, followingCompany]});
+          }
+          catch(ex){
+            this.setState({ error: ex.response.data.message });
+          }
+        }
+
+        async generateRandomVacation(){
+          this.setState({ error: ''});
+          const { user, vacations } = this.state;
+          try {
+            const startDate = momentRandom();
+            const endDate = moment(startDate).add(2, 'weeks').format('MM-DD-YYYY');
+            const randomVacation = (await axios.post(`${API}/users/${user.id}/vacations`, { startDate: startDate.format('MM-DD-YYYY'), endDate })).data;
+            this.setState({ vacations: [...vacations, randomVacation]});
+          }
+          catch(ex){
+            this.setState({ error: ex.response.data.message });
+          }
+        }
+
+        async destroy(obj){
+          this.setState({ error: ''});
+          const { user, vacations, notes, followingCompanies } = this.state;
+          try {
+            if (notes.includes(obj)) {
+              await axios.delete(`${API}/users/${user.id}/notes/${obj.id}`);
+              this.setState({ notes: notes.filter( _note => _note.id !== obj.id) });
+            }
+            if (followingCompanies.includes(obj)) {
+              await axios.delete(`${API}/users/${user.id}/followingCompanies/${obj.id}`);
+              this.setState({ followingCompanies: followingCompanies.filter( _company => _company.id !== obj.id) });
+            }
+            if (vacations.includes(obj)) {
+              await axios.delete(`${API}/users/${user.id}/vacations/${obj.id}`);
+              this.setState({ vacations: vacations.filter( _vacation => _vacation.id !== obj.id) });
+            }
+          }
+          catch(ex){
+            this.setState({ error: ex.response.data.message });
+          }
+        }
+        async componentDidMount(){
+          const user = await fetchUser();
+          const notes = (await axios.get(`${API}/users/${user.id}/notes`)).data;
+          const followingCompanies = (await axios.get(`${API}/users/${user.id}/followingCompanies`)).data;
+          const companies = (await axios.get(`${API}/companies`)).data;
+          const vacations = (await axios.get(`${API}/users/${user.id}/vacations`)).data;
+          this.setState({ user, notes, followingCompanies, companies, vacations });
+        }
+        render(){
+          const { error, user, companies, vacations, followingCompanies, notes } = this.state;
+          const { generateRandomNote, generateRandomCompany, generateRandomVacation, destroy } = this;
+          console.log('user', user);
+          //console.log('faker', faker);
+          return (
+            <div>
+              <h1>The Acme Random Life</h1>
+              Welcome { user.fullName } to your Random Life!
+              <div className='error'>{ error }</div>
+              <div id='notes'>
+                <h3>notes ({ notes.length })</h3>
+                <button onClick={ generateRandomNote }>Add A Random Note</button>
+                <form onSubmit={ ev => ev.preventDefault() }>
+                  <ul>
+                    {
+                      notes.map( note => (
+                        <li key={note.id}>
+                          <p>{note.text}</p>
+                          <button onClick={ ()=> destroy(note) }>Destroy</button>
+                        </li>
+                      ))
+                    }
+                  </ul>
+                </form>
+                <hr />
+              </div>
+              <div id='followingCompanies'>
+                <h3>followingCompanies ({ followingCompanies.length })</h3>
+                <button onClick={ generateRandomCompany }>Add A Random followingCompanies</button>
+                <form onSubmit={ ev => ev.preventDefault() }>
+                  <ul>
+                    {
+                      followingCompanies.map( company => (
+                        <li key={company.id}>
+                          <p>{companies.find( _company => company.companyId === _company.id).name}</p>
+                          <button onClick={()=> destroy(company)}>Destroy</button>
+                        </li>
+                      ))
+                    }
+                  </ul>
+                </form>
+                <hr />
+              </div>
+              <div id='vacations'>
+                <h3>vacations ({ vacations.length})</h3>
+                <button onClick={ generateRandomVacation }>Add A Random Vacations</button>
+                <form onSubmit={ ev => ev.preventDefault()}>
+                  <ul>
+                    {
+                      vacations.map( vacation => (
+                        <li key={vacation.id}>
+                          <p>{vacation.startDate.slice(0, 10)} to {vacation.endDate.slice(0, 10)}</p>
+                          <button onClick={()=> destroy(vacation)}>Destroy</button>
+                        </li>
+                      ))
+                    }
+                  </ul>
+                </form>
+                <hr />
+              </div>
+            </div>
+          );
+        }
+      }
+
+      ReactDOM.render(<App />, document.querySelector('#root'));
+    </script>
+  </body>
+</html>
